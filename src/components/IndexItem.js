@@ -1,13 +1,38 @@
 import React, { memo, useCallback } from 'react';
 import { debounce } from '@/utils/helpers';
-import { fetchTickerSuggestions } from '@/lib/api';
 
-const IndexItem = memo(({ index, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey }) => {
+const IndexItem = memo(({ index, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey, onError }) => {
+    // A flag to prevent fetching suggestions right after one has been selected.
+    const suggestionSelected = React.useRef(false);
+
     const debouncedFetch = useCallback(debounce((keywords) => {
-        fetchTickerSuggestions(apiKey, keywords).then(suggestions => {
+        if (!apiKey || suggestionSelected.current) {
+            suggestionSelected.current = false;
+            return;
+        }
+
+        const fetcher = async () => {
+            const response = await fetch(`/api/market-data/sync`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'suggestions', keywords, apiKey })
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to fetch suggestions');
+            }
+            const suggestions = await response.json();
             onChange(index.id, 'suggestions', suggestions);
+        };
+
+        // Explicitly catch promise rejections from the debounced async function
+        fetcher().catch(error => {
+            console.error("Failed to fetch suggestions:", error);
+            onChange(index.id, 'suggestions', []);
+            onError(error.message);
         });
-    }, 500), [apiKey, index.id, onChange]);
+
+    }, 500), [index.id, onChange, apiKey, onError]);
 
     const handleTickerChange = (e) => {
         const { value } = e.target;
@@ -17,6 +42,11 @@ const IndexItem = memo(({ index, onRemove, onChange, onSelectSuggestion, onFetch
         } else {
             onChange(index.id, 'suggestions', []);
         }
+    };
+    
+    const handleSelectSuggestion = (suggestion) => {
+        suggestionSelected.current = true;
+        onSelectSuggestion(index.id, suggestion);
     };
 
     return (
@@ -43,7 +73,7 @@ const IndexItem = memo(({ index, onRemove, onChange, onSelectSuggestion, onFetch
                     {index.suggestions?.length > 0 && (
                         <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-40 overflow-y-auto">
                             {index.suggestions.map(s => (
-                                <li key={s['1. symbol']} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(index.id, s)}>
+                                <li key={s['1. symbol']} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => handleSelectSuggestion(s)}>
                                     {s['1. symbol']} - {s['2. name']}
                                 </li>
                             ))}

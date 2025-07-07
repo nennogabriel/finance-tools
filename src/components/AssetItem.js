@@ -1,22 +1,57 @@
 import React, { memo, useCallback } from 'react';
 import { debounce } from '@/utils/helpers';
-import { fetchTickerSuggestions } from '@/lib/api';
 
-const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey }) => {
-    const debouncedFetch = useCallback(debounce((keywords) => {
-        fetchTickerSuggestions(apiKey, keywords).then(suggestions => {
+const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey, onError }) => {
+    // A flag to prevent fetching suggestions right after one has been selected.
+    const suggestionSelected = React.useRef(false);
+
+    const debouncedFetch = useCallback(debounce(async (keywords) => {
+        if (!apiKey || suggestionSelected.current) {
+            suggestionSelected.current = false; // Reset the flag
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/market-data/sync`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'suggestions', keywords, apiKey })
+            });
+
+            if (!response.ok) {
+                let errorMessage = 'Failed to fetch suggestions';
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch (parseError) {
+                    // The body might not be JSON, so we have a fallback.
+                    console.error('Error parsing error response:', parseError);
+                }
+                throw new Error(errorMessage);
+            }
+
+            const suggestions = await response.json();
             onChange(asset.id, 'suggestions', suggestions);
-        });
-    }, 500), [apiKey, asset.id, onChange]);
+        } catch (error) {
+            console.error("Debounced fetch failed:", error);
+            onChange(asset.id, 'suggestions', []); // Clear suggestions on error
+            onError(error.message); // Show user-friendly error
+        }
+    }, 500), [asset.id, onChange, apiKey, onError]);
 
     const handleTickerChange = (e) => {
         const { value } = e.target;
         onChange(asset.id, 'ticker', value.toUpperCase());
-        if (value.length > 1) {
+        if (value.length >= 3) {
             debouncedFetch(value);
         } else {
             onChange(asset.id, 'suggestions', []);
         }
+    };
+
+    const handleSelectSuggestion = (suggestion) => {
+        suggestionSelected.current = true;
+        onSelectSuggestion(asset.id, suggestion);
     };
 
     return (
@@ -39,7 +74,7 @@ const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetch
                     {asset.suggestions?.length > 0 && (
                         <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-40 overflow-y-auto">
                             {asset.suggestions.map(s => (
-                                <li key={s['1. symbol']} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(asset.id, s)}>
+                                <li key={s['1. symbol']} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => handleSelectSuggestion(s)}>
                                     {s['1. symbol']} - {s['2. name']}
                                 </li>
                             ))}

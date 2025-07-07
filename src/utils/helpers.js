@@ -1,11 +1,30 @@
 // --- Helper Functions ---
-export function debounce(func, delay) {
+export const debounce = (func, delay) => {
     let timeout;
-    return function(...args) {
+
+    return function executedFunction(...args) {
+        const context = this;
+
+        const later = () => {
+            timeout = null;
+            const result = func.apply(context, args);
+            
+            // If the function returns a promise, attach a basic catch handler.
+            // This prevents the Next.js development error overlay for unhandled promise rejections.
+            // The actual error logic is handled inside the component's async function.
+            if (result instanceof Promise) {
+                result.catch(e => {
+                    // We can log this for debugging if needed, but the primary goal
+                    // is to prevent the unhandled rejection error.
+                    // console.error('Debounced promise rejection caught:', e);
+                });
+            }
+        };
+
         clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), delay);
+        timeout = setTimeout(later, delay);
     };
-}
+};
 
 export const formatCurrency = (value, options = {}) => {
     const { withSymbol = false, spaceSymbol = false } = options;
