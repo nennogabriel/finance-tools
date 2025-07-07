@@ -173,10 +173,10 @@ const InvestmentPortfolioSimulator = () => {
     }, []);
 
     const handleFetchData = async (id, type) => {
-        // Check for the API limit first and provide immediate feedback.
-        if (isApiLimitReached) {
-            return toast.error("API limit reached. New data cannot be fetched until the key is changed.");
-        }
+        // The API limit check is now handled entirely by the backend.
+        // if (isApiLimitReached) {
+        //     return toast.error("API limit reached. New data cannot be fetched until the key is changed.");
+        // }
 
         const item = type === 'asset' ? assets.find(i => i.id === id) : comparisonIndices.find(i => i.id === id);
         if (!item?.ticker) {
