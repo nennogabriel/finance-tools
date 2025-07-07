@@ -1,3 +1,5 @@
+import { ApiError } from '@/utils/helpers';
+
 // No longer using client-side cache, Directus will handle caching.
 // const apiCache = {}; 
 
@@ -31,17 +33,18 @@ const fetchFromAPI = async (apiKey, ticker, seriesFunction) => {
     if (infoOrNote) {
         const lowerInfo = infoOrNote.toLowerCase();
         if (lowerInfo.includes('premium')) {
-            throw new Error(`This asset requires a premium Alpha Vantage plan and cannot be fetched with a free key.`);
+            // Using ApiError to send a specific status code back
+            throw new ApiError(`This asset requires a premium Alpha Vantage plan.`, 402); // 402 Payment Required
         }
         if (lowerInfo.includes('limit') || lowerInfo.includes('thank you for using')) {
-            throw new Error(`The daily API call limit has been reached for this key. Please try again tomorrow, use a different key, or subscribe to a premium plan.`);
+            throw new ApiError(`The Alpha Vantage API limit has been reached. You can still use assets that are already cached.`, 429); // 429 Too Many Requests
         }
         // Generic fallback for any other note/information
-        throw new Error(`API provider note: ${infoOrNote}`);
+        throw new ApiError(`API provider note: ${infoOrNote}`, 400);
     }
 
     if (data['Error Message']) {
-        throw new Error(`API Error: ${data['Error Message']}`);
+        throw new ApiError(`API Error: ${data['Error Message']}`, 400);
     }
     return data;
 };

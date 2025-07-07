@@ -1,43 +1,54 @@
 import React, { memo, useCallback } from 'react';
 import { debounce } from '@/utils/helpers';
 
-const IndexItem = memo(({ index, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey, onError }) => {
+const IndexItem = memo(({ index, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey, onError, isApiLimitReached }) => {
     // A flag to prevent fetching suggestions right after one has been selected.
     const suggestionSelected = React.useRef(false);
 
-    const debouncedFetch = useCallback(debounce((keywords) => {
+    const debouncedFetch = useCallback(debounce(async (keywords) => {
         if (!apiKey || suggestionSelected.current) {
             suggestionSelected.current = false;
             return;
         }
 
-        const fetcher = async () => {
+        try {
             const response = await fetch(`/api/market-data/sync`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'suggestions', keywords, apiKey })
+                body: JSON.stringify({ 
+                    type: 'suggestions', 
+                    keywords, 
+                    apiKey,
+                    isApiLimitReached // Pass the flag
+                })
             });
+
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to fetch suggestions');
+                let errorMessage = 'Failed to fetch suggestions';
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch (parseError) {
+                    // Fail silently
+                }
+                return onError(errorMessage);
             }
+
             const suggestions = await response.json();
             onChange(index.id, 'suggestions', suggestions);
-        };
-
-        // Explicitly catch promise rejections from the debounced async function
-        fetcher().catch(error => {
-            console.error("Failed to fetch suggestions:", error);
+        } catch (error) {
             onChange(index.id, 'suggestions', []);
             onError(error.message);
-        });
-
-    }, 500), [index.id, onChange, apiKey, onError]);
+        }
+    }, 500), [index.id, onChange, apiKey, onError, isApiLimitReached]);
 
     const handleTickerChange = (e) => {
         const { value } = e.target;
+        // Reset status when the user starts typing a new ticker
+        onChange(index.id, 'status', 'idle');
         onChange(index.id, 'ticker', value.toUpperCase());
-        if (value.length > 1) {
+        
+        if (value.length >= 3) {
             debouncedFetch(value);
         } else {
             onChange(index.id, 'suggestions', []);

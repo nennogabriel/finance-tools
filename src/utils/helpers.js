@@ -26,6 +26,13 @@ export const debounce = (func, delay) => {
     };
 };
 
+export class ApiError extends Error {
+    constructor(message, statusCode) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+}
+
 export const formatCurrency = (value, options = {}) => {
     const { withSymbol = false, spaceSymbol = false } = options;
     const num = value || 0;

@@ -1,15 +1,33 @@
-import "@/styles/globals.css";
-import Link from 'next/link';
+import { Toaster } from 'react-hot-toast';
+import '@/styles/globals.css';
 
 function MyApp({ Component, pageProps }) {
   return (
     <>
-      <nav>
-        <Link href="/">Home</Link> | <Link href="/simulate">Simulator</Link>
-      </nav>
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          className: '',
+          duration: 5000,
+          style: {
+            background: '#ffffff',
+            color: '#363636',
+            border: '1px solid #e0e0e0',
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
+          },
+          // Overrides for specific types
+          error: {
+            style: {
+              background: '#fde8e8',
+              color: '#c53030',
+              border: '1px solid #fbcaca',
+            },
+          },
+        }}
+      />
       <Component {...pageProps} />
     </>
-  )
+  );
 }
 
-export default MyApp
+export default MyApp;

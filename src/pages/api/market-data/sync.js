@@ -1,4 +1,5 @@
 import { fetchAlphaVantageData } from '@/lib/api';
+import { ApiError } from '@/utils/helpers';
 
 const DIRECTUS_URL = process.env.NEXT_PUBLIC_DIRECTUS_URL;
 const DIRECTUS_TOKEN = process.env.DIRECTUS_API_TOKEN;
@@ -25,23 +26,34 @@ const getCachedSuggestions = async (keywords) => {
 
 const saveNewTickerInfo = async (tickers) => {
     if (!tickers || tickers.length === 0) return;
+    
     const symbols = tickers.map(t => t['1. symbol']);
     const filter = { "ticker": { "_in": symbols } };
     const checkUrl = `${DIRECTUS_URL}/items/market_data?filter=${JSON.stringify(filter)}&fields=ticker`;
+    
     let existingTickers = new Set();
     try {
         const checkResponse = await fetch(checkUrl, { headers: { 'Authorization': `Bearer ${DIRECTUS_TOKEN}` } });
-        if (checkResponse.ok) {
-            const { data } = await checkResponse.json();
-            if (data) {
-                existingTickers = new Set(data.map(item => item.ticker));
-            }
+        if (!checkResponse.ok) {
+            // If the check fails, we cannot safely proceed. Log the error and abort.
+            const errorBody = await checkResponse.text();
+            throw new Error(`Failed to check for existing tickers. Status: ${checkResponse.status}. Body: ${errorBody}`);
         }
-    } catch (e) { /* Ignore */ }
+        const { data } = await checkResponse.json();
+        if (data) {
+            existingTickers = new Set(data.map(item => item.ticker));
+        }
+    } catch (e) {
+        console.error("Error checking for existing tickers, aborting save.", e);
+        return; // Abort the save operation if the check fails.
+    }
+
     const newTickersToSave = tickers
         .filter(t => !existingTickers.has(t['1. symbol']))
         .map(t => ({ ticker: t['1. symbol'], name: t['2. name'] }));
+    
     if (newTickersToSave.length === 0) return;
+
     try {
         const createResponse = await fetch(`${DIRECTUS_URL}/items/market_data`, {
             method: 'POST',
@@ -49,7 +61,8 @@ const saveNewTickerInfo = async (tickers) => {
             body: JSON.stringify(newTickersToSave)
         });
         if (!createResponse.ok) {
-            throw new Error(`Directus new ticker POST failed.`);
+            const errorBody = await createResponse.text();
+            throw new Error(`Directus new ticker POST failed. Status: ${createResponse.status}. Body: ${errorBody}`);
         }
     } catch (error) {
         console.error("Error in saveNewTickerInfo (POST):", error);
@@ -102,16 +115,10 @@ const isCacheValid = (dateUpdated) => {
 
 // --- Main Handler ---
 
-// Custom error class to pass status codes
-class ApiError extends Error {
-    constructor(message, statusCode) {
-        super(message);
-        this.statusCode = statusCode;
-    }
-}
+// The custom ApiError class is now imported from helpers.js
 
 const handleSuggestions = async (req, res) => {
-    const { keywords, apiKey } = req.body;
+    const { keywords, apiKey, isApiLimitReached } = req.body;
     if (!keywords || !apiKey) return res.status(400).json({ error: 'Keywords and API Key are required.' });
 
     // Do not process queries with less than 3 characters
@@ -121,9 +128,10 @@ const handleSuggestions = async (req, res) => {
 
     const cachedSuggestions = await getCachedSuggestions(keywords);
     
-    // --- NEW LOGIC ---
-    // Only call the external API if our local cache returns absolutely nothing.
-    if (cachedSuggestions.length > 0) {
+    if (cachedSuggestions.length > 0 || isApiLimitReached) {
+        if (isApiLimitReached) {
+            console.log('[INFO] API limit reached, returning only cached suggestions.');
+        }
         return res.status(200).json(cachedSuggestions);
     }
 
@@ -157,13 +165,29 @@ const handleSuggestions = async (req, res) => {
 };
 
 const handleFullData = async (req, res) => {
-    const { ticker, name, apiKey } = req.body;
+    const { ticker, name, apiKey, isApiLimitReached } = req.body;
     if (!ticker || !apiKey) return res.status(400).json({ error: 'Ticker and API Key are required.' });
+    
+    // --- NEW LOGIC ORDER ---
+    // 1. Always check the cache first.
     const cachedData = await getCachedMarketData(ticker);
     const hasValidCache = cachedData && cachedData.monthly_returns && cachedData.monthly_returns.length > 0 && isCacheValid(cachedData.date_updated);
+
     if (hasValidCache) {
         return res.status(200).json(cachedData);
     }
+
+    // 2. If cache is invalid or incomplete, THEN check the API limit flag.
+    if (isApiLimitReached) {
+        if (cachedData) {
+            // Return stale data if we have it, as it's better than nothing.
+            return res.status(200).json(cachedData);
+        }
+        // If there's no cache at all and the limit is reached, then we must fail.
+        throw new ApiError(`The API limit has been reached, and no cached data is available for this new ticker.`, 429);
+    }
+
+    // 3. Only if the cache is insufficient AND the API limit is not reached, we fetch.
     const { monthlyReturns } = await fetchAlphaVantageData(apiKey, ticker);
     const dataToSave = {
         ticker: ticker,
@@ -195,9 +219,15 @@ export default async function handler(req, res) {
         }
         return res.status(400).json({ error: 'Invalid request type.' });
     } catch (error) {
-        console.error(`Sync handler failed:`, error);
-        const statusCode = error.statusCode || 500;
-        const message = error.message || 'An unexpected server error occurred.';
-        return res.status(statusCode).json({ error: message });
+        if (error instanceof ApiError) {
+            // This is an expected, controlled error (e.g., API limit).
+            // We log it for information but not as a server crash.
+            console.log(`[INFO] API Error: ${error.message} (Status: ${error.statusCode})`);
+            return res.status(error.statusCode).json({ error: error.message });
+        }
+        
+        // This is an unexpected server error.
+        console.error(`[FATAL] Unhandled sync handler error:`, error);
+        return res.status(500).json({ error: 'An unexpected server error occurred.' });
     }
 } 

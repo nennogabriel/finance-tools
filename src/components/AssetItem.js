@@ -1,7 +1,7 @@
 import React, { memo, useCallback } from 'react';
 import { debounce } from '@/utils/helpers';
 
-const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey, onError }) => {
+const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetchData, apiKey, onError, isApiLimitReached }) => {
     // A flag to prevent fetching suggestions right after one has been selected.
     const suggestionSelected = React.useRef(false);
 
@@ -15,7 +15,12 @@ const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetch
             const response = await fetch(`/api/market-data/sync`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'suggestions', keywords, apiKey })
+                body: JSON.stringify({ 
+                    type: 'suggestions', 
+                    keywords, 
+                    apiKey,
+                    isApiLimitReached // Pass the flag
+                })
             });
 
             if (!response.ok) {
@@ -24,24 +29,27 @@ const AssetItem = memo(({ asset, onRemove, onChange, onSelectSuggestion, onFetch
                     const errorData = await response.json();
                     errorMessage = errorData.error || errorMessage;
                 } catch (parseError) {
-                    // The body might not be JSON, so we have a fallback.
-                    console.error('Error parsing error response:', parseError);
+                    // Fail silently in console, the user will see the toast.
                 }
-                throw new Error(errorMessage);
+                // Instead of throwing, we just call the onError handler.
+                return onError(errorMessage);
             }
 
             const suggestions = await response.json();
             onChange(asset.id, 'suggestions', suggestions);
         } catch (error) {
-            console.error("Debounced fetch failed:", error);
-            onChange(asset.id, 'suggestions', []); // Clear suggestions on error
-            onError(error.message); // Show user-friendly error
+            // This will now primarily catch network errors.
+            onChange(asset.id, 'suggestions', []); 
+            onError(error.message); 
         }
-    }, 500), [asset.id, onChange, apiKey, onError]);
+    }, 500), [asset.id, onChange, apiKey, onError, isApiLimitReached]);
 
     const handleTickerChange = (e) => {
         const { value } = e.target;
+        // Reset status when the user starts typing a new ticker
+        onChange(asset.id, 'status', 'idle');
         onChange(asset.id, 'ticker', value.toUpperCase());
+        
         if (value.length >= 3) {
             debouncedFetch(value);
         } else {

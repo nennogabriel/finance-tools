@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import toast from 'react-hot-toast';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title as ChartTitle } from 'chart.js';
 import { Pie, Line } from 'react-chartjs-2';
 
@@ -12,40 +13,7 @@ import IndexItem from '@/components/IndexItem';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, ChartTitle);
 
-// A simple, reusable modal component
-const ErrorModal = ({ isOpen, onClose, message }) => {
-    if (!isOpen) return null;
-
-    const isLimitError = message.toLowerCase().includes('limit');
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
-            <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-                <h3 className="text-xl font-bold text-red-600 mb-4">An Error Occurred</h3>
-                <p className="text-gray-700 mb-4">{message}</p>
-                
-                {isLimitError && (
-                    <div className="text-sm text-gray-600 bg-yellow-50 p-4 rounded-md">
-                        <p className="font-semibold mb-2">What you can do:</p>
-                        <ul className="list-disc list-inside space-y-1">
-                            <li>Try again tomorrow when the limit resets.</li>
-                            <li>Use a different Alpha Vantage API key.</li>
-                            <li>Continue simulating with assets already loaded in the app.</li>
-                            <li><a href="https://www.alphavantage.co/premium/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Subscribe to a premium plan</a> for unlimited calls.</li>
-                        </ul>
-                    </div>
-                )}
-
-                <button 
-                    onClick={onClose}
-                    className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300"
-                >
-                    Close
-                </button>
-            </div>
-        </div>
-    );
-};
+// The ErrorModal component is no longer needed and will be removed.
 
 
 // --- Main App Component ---
@@ -65,7 +33,7 @@ const InvestmentPortfolioSimulator = () => {
         enableRebalancing: false,
     });
     const [apiKey, setApiKey] = useState('');
-    const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
+    const [isApiLimitReached, setIsApiLimitReached] = useState(false); // This will now be passed to the backend
     // The premium tickers set is no longer needed.
 
     const [assets, setAssets] = useState([
@@ -81,7 +49,7 @@ const InvestmentPortfolioSimulator = () => {
     
     const [simulationResults, setSimulationResults] = useState([]);
     const [errors, setErrors] = useState({});
-    const [errorModal, setErrorModal] = useState({ isOpen: false, message: '' });
+    // The errorModal state is no longer needed.
 
     const prevSimPeriodRef = useRef(params.simulationPeriod);
 
@@ -127,6 +95,19 @@ const InvestmentPortfolioSimulator = () => {
         }
     }, [params.simulationPeriod, handleRegenerateAll]);
 
+    useEffect(() => {
+        setIsApiLimitReached(false);
+    }, [apiKey]);
+
+    const handleApiError = (message) => {
+        const isLimitError = message && message.toLowerCase().includes('limit');
+        if (isLimitError) {
+            toast.error("API limit reached. New ticker data will be unavailable for this session.");
+            setIsApiLimitReached(true);
+        } else {
+            toast.error(message);
+        }
+    };
 
     const validateParams = useCallback(() => {
         const newErrors = {};
@@ -192,14 +173,17 @@ const InvestmentPortfolioSimulator = () => {
     }, []);
 
     const handleFetchData = async (id, type) => {
+        // Check for the API limit first and provide immediate feedback.
+        if (isApiLimitReached) {
+            return toast.error("API limit reached. New data cannot be fetched until the key is changed.");
+        }
+
         const item = type === 'asset' ? assets.find(i => i.id === id) : comparisonIndices.find(i => i.id === id);
         if (!item?.ticker) {
-            alert("Please enter a ticker symbol before fetching data.");
-            return;
+            return toast.error("Please enter a ticker symbol before fetching data.");
         }
         if (!apiKey) {
-            alert("Please provide your Alpha Vantage API key to fetch data.");
-            return;
+            return toast.error("Please provide your Alpha Vantage API key to fetch data.");
         }
 
         const setter = type === 'asset' ? setAssets : setComparisonIndices;
@@ -214,7 +198,8 @@ const InvestmentPortfolioSimulator = () => {
                     type: 'full_data', 
                     ticker: item.ticker, 
                     name: item.name, 
-                    apiKey: apiKey 
+                    apiKey: apiKey,
+                    isApiLimitReached: isApiLimitReached // Pass the flag to the backend
                 })
             });
 
@@ -233,8 +218,7 @@ const InvestmentPortfolioSimulator = () => {
                 throw new Error("No monthly returns data received from server.");
             }
         } catch (error) {
-            console.error("Error syncing data:", error);
-            setErrorModal({ isOpen: true, message: error.message }); // Set modal state instead of alert
+            handleApiError(error.message);
             setter(prev => prev.map(i => i.id === id ? { ...i, status: 'error' } : i));
         }
     };
@@ -270,192 +254,181 @@ const InvestmentPortfolioSimulator = () => {
         ],
     };
 
+    const onError = (message) => {
+        toast.error(message);
+    };
+
     return (
-        <>
-            <ErrorModal 
-                isOpen={errorModal.isOpen} 
-                onClose={() => setErrorModal({ isOpen: false, message: '' })}
-                message={errorModal.message}
-            />
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 sm:p-8 font-sans text-gray-800">
-                <div className="max-w-7xl mx-auto bg-white shadow-2xl rounded-xl p-6 sm:p-10">
-                    <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-indigo-700 mb-8">
-                        Investment Portfolio Simulator
-                    </h1>
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 sm:p-8 font-sans text-gray-800">
+            <div className="max-w-7xl mx-auto bg-white shadow-2xl rounded-xl p-6 sm:p-10">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-indigo-700 mb-8">
+                    Investment Portfolio Simulator
+                </h1>
 
-                    <div className="flex flex-col gap-8">
-                        <div className="p-6 bg-yellow-50 rounded-lg shadow-inner">
-                            <h2 className="text-xl font-semibold text-yellow-800 mb-4">Your Alpha Vantage API Key</h2>
-                            <div className="relative mt-1">
-                                <input
-                                    type={isApiKeyVisible ? 'text' : 'password'}
-                                    value={apiKey}
-                                    onChange={(e) => setApiKey(e.target.value)}
-                                    className="w-full p-2 pr-10 border border-gray-300 rounded-md"
-                                    placeholder="Enter your API Key"
+                <div className="flex flex-col gap-8">
+                    <div className="p-6 bg-yellow-50 rounded-lg shadow-inner">
+                        <h2 className="text-xl font-semibold text-yellow-800 mb-4">Your Alpha Vantage API Key</h2>
+                        <div className="relative mt-1">
+                            <input
+                                type="text" // Changed from 'password' to 'text'
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                className="w-full p-2 pr-10 border border-gray-300 rounded-md"
+                                placeholder="Enter your API Key"
+                            />
+                            {/* The visibility toggle button is removed */}
+                        </div>
+                        <p className="text-xs text-gray-600 mt-2">Your key is used to fetch data not yet in our cache. The results are then cached to benefit all users. Get a free key from <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Alpha Vantage</a>.</p>
+                    </div>
+
+                    {/* Assets Section */}
+                    <div className="p-6 bg-blue-50 rounded-lg shadow-inner">
+                        <h2 className="text-xl font-semibold text-blue-800 mb-4">Your Assets</h2>
+                        <div className="space-y-4">
+                            {assets.map(asset => (
+                                <AssetItem 
+                                    key={asset.id}
+                                    asset={asset}
+                                    onRemove={() => setAssets(assets.filter(a => a.id !== asset.id))}
+                                    onChange={handleAssetChange}
+                                    onSelectSuggestion={selectAssetSuggestion}
+                                    onFetchData={handleFetchData}
+                                    apiKey={apiKey}
+                                    onError={handleApiError}
+                                    isApiLimitReached={isApiLimitReached}
                                 />
-                                <button
-                                    type="button"
-                                    onClick={() => setIsApiKeyVisible(!isApiKeyVisible)}
-                                    className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-600 hover:text-gray-800"
-                                >
-                                    {isApiKeyVisible ? (
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
-                                    ) : (
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7 1.274-4.057 5.064-7 9.542-7 .847 0 1.67.127 2.457.362m-4.594 8.843a3 3 0 114.243-4.242M6.125 6.125L17.875 17.875"></path></svg>
-                                    )}
-                                </button>
-                            </div>
-                            <p className="text-xs text-gray-600 mt-2">Your key is used to fetch data not yet in our cache. The results are then cached to benefit all users. Get a free key from <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Alpha Vantage</a>.</p>
+                            ))}
                         </div>
-
-                        {/* Assets Section */}
-                        <div className="p-6 bg-blue-50 rounded-lg shadow-inner">
-                            <h2 className="text-xl font-semibold text-blue-800 mb-4">Your Assets</h2>
-                            <div className="space-y-4">
-                                {assets.map(asset => (
-                                    <AssetItem 
-                                        key={asset.id}
-                                        asset={asset}
-                                        onRemove={() => setAssets(assets.filter(a => a.id !== asset.id))}
-                                        onChange={handleAssetChange}
-                                        onSelectSuggestion={selectAssetSuggestion}
-                                        onFetchData={handleFetchData}
-                                        apiKey={apiKey}
-                                        onError={(message) => setErrorModal({ isOpen: true, message })}
-                                    />
-                                ))}
-                            </div>
-                            <button onClick={() => setAssets([...assets, { id: Date.now(), name: 'New Asset', initialAllocationPercentage: '0', dividendYield: '0', annualProfitability: '0', minMonthlyProfitability: '-5', maxMonthlyProfitability: '5', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] }])} className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">+ Add Asset</button>
-                            <div className={`mt-4 p-3 rounded-md text-center font-semibold ${totalAllocationPercentage > 100 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                                Total Allocation: {totalAllocationPercentage.toFixed(2)}%
-                            </div>
+                        <button onClick={() => setAssets([...assets, { id: Date.now(), name: 'New Asset', initialAllocationPercentage: '0', dividendYield: '0', annualProfitability: '0', minMonthlyProfitability: '-5', maxMonthlyProfitability: '5', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] }])} className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">+ Add Asset</button>
+                        <div className={`mt-4 p-3 rounded-md text-center font-semibold ${totalAllocationPercentage > 100 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                            Total Allocation: {totalAllocationPercentage.toFixed(2)}%
                         </div>
-                        
-                        {/* Comparison Indices Section */}
-                        <div className="p-6 bg-orange-50 rounded-lg shadow-inner">
-                             <h2 className="text-xl font-semibold text-orange-800 mb-4">Comparison Indices</h2>
-                             <div className="space-y-4">
-                                {comparisonIndices.map(index => (
-                                    <IndexItem
-                                        key={index.id}
-                                        index={index}
-                                        onRemove={() => setComparisonIndices(comparisonIndices.filter(i => i.id !== index.id))}
-                                        onChange={handleIndexChange}
-                                        onSelectSuggestion={selectIndexSuggestion}
-                                        onFetchData={handleFetchData}
-                                        apiKey={apiKey}
-                                        onError={(message) => setErrorModal({ isOpen: true, message })}
-                                    />
-                                ))}
-                             </div>
-                             <button onClick={() => setComparisonIndices([...comparisonIndices, { id: Date.now(), name: 'New Index', annualProfitability: '0', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] }])} className="mt-4 w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">+ Add Index</button>
-                        </div>
+                    </div>
+                    
+                    {/* Comparison Indices Section */}
+                    <div className="p-6 bg-orange-50 rounded-lg shadow-inner">
+                         <h2 className="text-xl font-semibold text-orange-800 mb-4">Comparison Indices</h2>
+                         <div className="space-y-4">
+                            {comparisonIndices.map(index => (
+                                <IndexItem
+                                    key={index.id}
+                                    index={index}
+                                    onRemove={() => setComparisonIndices(comparisonIndices.filter(i => i.id !== index.id))}
+                                    onChange={handleIndexChange}
+                                    onSelectSuggestion={selectIndexSuggestion}
+                                    onFetchData={handleFetchData}
+                                    apiKey={apiKey}
+                                    onError={handleApiError}
+                                    isApiLimitReached={isApiLimitReached}
+                                />
+                            ))}
+                         </div>
+                         <button onClick={() => setComparisonIndices([...comparisonIndices, { id: Date.now(), name: 'New Index', annualProfitability: '0', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] }])} className="mt-4 w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">+ Add Index</button>
+                    </div>
 
-                        {/* General Config Section */}
-                         <div className="p-6 bg-gray-50 rounded-lg shadow-inner space-y-4">
-                             <h2 className="text-xl font-semibold text-gray-800 mb-4">General Simulation Settings</h2>
-                             <InputField label="Initial Cash ($)" name="initialCash" value={params.initialCash} onChange={handleParamChange} error={errors.initialCash} />
-                             <InputField label="Simulation Period (Months)" name="simulationPeriod" value={params.simulationPeriod} onChange={handleParamChange} error={errors.simulationPeriod} />
-                             
-                             <div className="pt-4 border-t">
-                                <h3 className="font-semibold text-gray-700">Contributions</h3>
-                                <InputField label="Fixed Monthly Contribution ($)" name="fixedMonthlyContribution" value={params.fixedMonthlyContribution} onChange={handleParamChange} error={errors.fixedMonthlyContribution} />
-                                <label className="text-sm text-gray-600 mt-2 block">Adjust contribution by index (optional)</label>
-                                <select name="contributionAdjustmentIndexId" value={params.contributionAdjustmentIndexId} onChange={handleParamChange} className="w-full p-2 border rounded-md border-gray-300">
-                                    <option value="">No Adjustment</option>
-                                    {comparisonIndices.map(index => <option key={index.id} value={index.id}>{index.name}</option>)}
-                                </select>
-                             </div>
+                    {/* General Config Section */}
+                     <div className="p-6 bg-gray-50 rounded-lg shadow-inner space-y-4">
+                         <h2 className="text-xl font-semibold text-gray-800 mb-4">General Simulation Settings</h2>
+                         <InputField label="Initial Cash ($)" name="initialCash" value={params.initialCash} onChange={handleParamChange} error={errors.initialCash} />
+                         <InputField label="Simulation Period (Months)" name="simulationPeriod" value={params.simulationPeriod} onChange={handleParamChange} error={errors.simulationPeriod} />
+                         
+                         <div className="pt-4 border-t">
+                            <h3 className="font-semibold text-gray-700">Contributions</h3>
+                            <InputField label="Fixed Monthly Contribution ($)" name="fixedMonthlyContribution" value={params.fixedMonthlyContribution} onChange={handleParamChange} error={errors.fixedMonthlyContribution} />
+                            <label className="text-sm text-gray-600 mt-2 block">Adjust contribution by index (optional)</label>
+                            <select name="contributionAdjustmentIndexId" value={params.contributionAdjustmentIndexId} onChange={handleParamChange} className="w-full p-2 border rounded-md border-gray-300">
+                                <option value="">No Adjustment</option>
+                                {comparisonIndices.map(index => <option key={index.id} value={index.id}>{index.name}</option>)}
+                            </select>
+                         </div>
 
-                             <div className="pt-4 border-t">
-                                <h3 className="font-semibold text-gray-700">Withdrawals</h3>
-                                <InputField label="Fixed Monthly Withdrawal ($)" name="fixedMonthlyWithdrawal" value={params.fixedMonthlyWithdrawal} onChange={handleParamChange} />
-                                 <label className="text-sm text-gray-600 mt-2 block">Adjust withdrawal by index (optional)</label>
-                                 <select name="withdrawalAdjustmentIndexId" value={params.withdrawalAdjustmentIndexId} onChange={handleParamChange} className="w-full p-2 border rounded-md border-gray-300">
-                                     <option value="">No Adjustment</option>
-                                     {comparisonIndices.map(index => <option key={index.id} value={index.id}>{index.name}</option>)}
-                                 </select>
-                                <InputField label="Withdraw % of Monthly Profitability" name="percentageProfitabilityWithdrawal" value={params.percentageProfitabilityWithdrawal} onChange={handleParamChange} />
-                                <InputField label="Withdraw % of Cash Balance" name="percentageCashWithdrawal" value={params.percentageCashWithdrawal} onChange={handleParamChange} />
-                                <InputField label="Withdraw % of Profit Above Index" name="percentageExcessProfitWithdrawal" value={params.percentageExcessProfitWithdrawal} onChange={handleParamChange} />
-                                <label className="text-sm text-gray-600 mt-2 block">Select Index for &apos;Profit Above&apos;</label>
-                                <select name="selectedComparisonIndexForWithdrawal" value={params.selectedComparisonIndexForWithdrawal} onChange={handleParamChange} className="w-full p-2 border rounded-md border-gray-300">
-                                    <option value="">Select Index</option>
-                                    {comparisonIndices.map(index => <option key={index.id} value={index.id}>{index.name}</option>)}
-                                </select>
-                             </div>
+                         <div className="pt-4 border-t">
+                            <h3 className="font-semibold text-gray-700">Withdrawals</h3>
+                            <InputField label="Fixed Monthly Withdrawal ($)" name="fixedMonthlyWithdrawal" value={params.fixedMonthlyWithdrawal} onChange={handleParamChange} />
+                             <label className="text-sm text-gray-600 mt-2 block">Adjust withdrawal by index (optional)</label>
+                             <select name="withdrawalAdjustmentIndexId" value={params.withdrawalAdjustmentIndexId} onChange={handleParamChange} className="w-full p-2 border rounded-md border-gray-300">
+                                 <option value="">No Adjustment</option>
+                                 {comparisonIndices.map(index => <option key={index.id} value={index.id}>{index.name}</option>)}
+                             </select>
+                            <InputField label="Withdraw % of Monthly Profitability" name="percentageProfitabilityWithdrawal" value={params.percentageProfitabilityWithdrawal} onChange={handleParamChange} />
+                            <InputField label="Withdraw % of Cash Balance" name="percentageCashWithdrawal" value={params.percentageCashWithdrawal} onChange={handleParamChange} />
+                            <InputField label="Withdraw % of Profit Above Index" name="percentageExcessProfitWithdrawal" value={params.percentageExcessProfitWithdrawal} onChange={handleParamChange} />
+                            <label className="text-sm text-gray-600 mt-2 block">Select Index for &apos;Profit Above&apos;</label>
+                            <select name="selectedComparisonIndexForWithdrawal" value={params.selectedComparisonIndexForWithdrawal} onChange={handleParamChange} className="w-full p-2 border rounded-md border-gray-300">
+                                <option value="">Select Index</option>
+                                {comparisonIndices.map(index => <option key={index.id} value={index.id}>{index.name}</option>)}
+                            </select>
+                         </div>
 
 
-                             <div className="pt-4 border-t">
-                                <h3 className="font-semibold text-gray-700">Rebalancing</h3>
-                                <div className="flex items-center gap-2">
-                                    <input type="checkbox" name="enableRebalancing" checked={params.enableRebalancing} onChange={handleParamChange} className="h-5 w-5"/>
-                                    <span>Enable Rebalancing</span>
-                                </div>
-                                {params.enableRebalancing && (
-                                    <InputField label="Rebalancing Period (months)" name="rebalancePeriod" value={params.rebalancePeriod} onChange={handleParamChange} error={errors.rebalancePeriod} />
-                                )}
-                             </div>
-                        </div>
+                         <div className="pt-4 border-t">
+                            <h3 className="font-semibold text-gray-700">Rebalancing</h3>
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" name="enableRebalancing" checked={params.enableRebalancing} onChange={handleParamChange} className="h-5 w-5"/>
+                                <span>Enable Rebalancing</span>
+                            </div>
+                            {params.enableRebalancing && (
+                                <InputField label="Rebalancing Period (months)" name="rebalancePeriod" value={params.rebalancePeriod} onChange={handleParamChange} error={errors.rebalancePeriod} />
+                            )}
+                         </div>
+                    </div>
 
-                        {/* Charts and Report */}
-                        <div className="p-6 bg-white rounded-lg shadow-lg">
-                            <h2 className="text-xl font-semibold text-center mb-4">Final Portfolio Allocation</h2>
-                            <div className="w-full h-80 max-w-md mx-auto">
-                                <Pie data={pieChartData} options={{ responsive: true, maintainAspectRatio: false }} />
-                            </div>
+                    {/* Charts and Report */}
+                    <div className="p-6 bg-white rounded-lg shadow-lg">
+                        <h2 className="text-xl font-semibold text-center mb-4">Final Portfolio Allocation</h2>
+                        <div className="w-full h-80 max-w-md mx-auto">
+                            <Pie data={pieChartData} options={{ responsive: true, maintainAspectRatio: false }} />
                         </div>
-                        <div className="p-6 bg-white rounded-lg shadow-lg">
-                             <h2 className="text-xl font-semibold text-center mb-4">Portfolio Evolution vs. Indices</h2>
-                            <div className="w-full h-96">
-                                <Line data={lineChartData} options={{ responsive: true, maintainAspectRatio: false }} />
-                            </div>
+                    </div>
+                    <div className="p-6 bg-white rounded-lg shadow-lg">
+                         <h2 className="text-xl font-semibold text-center mb-4">Portfolio Evolution vs. Indices</h2>
+                        <div className="w-full h-96">
+                            <Line data={lineChartData} options={{ responsive: true, maintainAspectRatio: false }} />
                         </div>
-                         <div className="mt-10 p-6 bg-gray-50 rounded-lg shadow-inner overflow-x-auto">
-                            <div className="flex justify-center mb-4">
-                                <button onClick={handleRegenerateAll} className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300">
-                                    Regenerate Manual Simulations
-                                </button>
-                            </div>
-                            <h2 className="text-2xl font-semibold text-gray-800 mb-4">Detailed Results</h2>
-                            <table className="min-w-full bg-white text-sm">
-                                <thead className="bg-gray-200">
-                                    <tr>
-                                        <th className="py-2 px-3 text-left">Month</th>
-                                        {assets.map(asset => <th key={asset.id} className="py-2 px-3 text-left bg-blue-50">{asset.name}</th>)}
-                                        {comparisonIndices.map(index => <th key={index.id} className="py-2 px-3 text-left bg-orange-50">{index.name}</th>)}
-                                        {showDividends && <th className="py-2 px-3 text-left bg-yellow-50">Dividends</th>}
-                                        {showContributions && <th className="py-2 px-3 text-left bg-green-50">Contributions</th>}
-                                        {showWithdrawals && <th className="py-2 px-3 text-left bg-red-50">Withdrawals</th>}
-                                        {showNetCashFlow && <th className="py-2 px-3 text-left bg-gray-100">Net Cash Flow</th>}
-                                        <th className="py-2 px-3 text-left font-bold bg-gray-200">Total</th>
+                    </div>
+                     <div className="mt-10 p-6 bg-gray-50 rounded-lg shadow-inner overflow-x-auto">
+                        <div className="flex justify-center mb-4">
+                            <button onClick={handleRegenerateAll} className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300">
+                                Regenerate Manual Simulations
+                            </button>
+                        </div>
+                        <h2 className="text-2xl font-semibold text-gray-800 mb-4">Detailed Results</h2>
+                        <table className="min-w-full bg-white text-sm">
+                            <thead className="bg-gray-200">
+                                <tr>
+                                    <th className="py-2 px-3 text-left">Month</th>
+                                    {assets.map(asset => <th key={asset.id} className="py-2 px-3 text-left bg-blue-50">{asset.name}</th>)}
+                                    {comparisonIndices.map(index => <th key={index.id} className="py-2 px-3 text-left bg-orange-50">{index.name}</th>)}
+                                    {showDividends && <th className="py-2 px-3 text-left bg-yellow-50">Dividends</th>}
+                                    {showContributions && <th className="py-2 px-3 text-left bg-green-50">Contributions</th>}
+                                    {showWithdrawals && <th className="py-2 px-3 text-left bg-red-50">Withdrawals</th>}
+                                    {showNetCashFlow && <th className="py-2 px-3 text-left bg-gray-100">Net Cash Flow</th>}
+                                    <th className="py-2 px-3 text-left font-bold bg-gray-200">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {simulationResults.map(result => (
+                                    <tr key={result.period} className="border-b">
+                                        <td className="py-2 px-3">
+                                            {result.period === 0 ? 'Current' : new Date(result.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', '-')}
+                                        </td>
+                                        {assets.map(asset => <td key={asset.id} className="py-2 px-3 bg-blue-50">{formatCurrency(result.assetValues[asset.id])}</td>)}
+                                        {comparisonIndices.map(index => <td key={index.id} className="py-2 px-3 bg-orange-50">{formatCurrency(result.comparisonIndexValues[index.id])}</td>)}
+                                        {showDividends && <td className="py-2 px-3 bg-yellow-50">{formatCurrency(result.monthlyDividends)}</td>}
+                                        {showContributions && <td className="py-2 px-3 bg-green-50">{formatCurrency(result.monthlyContributionAmount)}</td>}
+                                        {showWithdrawals && <td className="py-2 px-3 bg-red-50">{formatCurrency(result.monthlyWithdrawalAmount)}</td>}
+                                        {showNetCashFlow && <td className={`py-2 px-3 bg-gray-100 ${result.netCashFlow < 0 ? 'text-red-600' : ''}`}>
+                                            {formatCurrency(result.netCashFlow)}
+                                        </td>}
+                                        <td className="py-2 px-3 font-bold bg-gray-200">{formatCurrency(result.totalValue)}</td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {simulationResults.map(result => (
-                                        <tr key={result.period} className="border-b">
-                                            <td className="py-2 px-3">
-                                                {result.period === 0 ? 'Current' : new Date(result.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', '-')}
-                                            </td>
-                                            {assets.map(asset => <td key={asset.id} className="py-2 px-3 bg-blue-50">{formatCurrency(result.assetValues[asset.id])}</td>)}
-                                            {comparisonIndices.map(index => <td key={index.id} className="py-2 px-3 bg-orange-50">{formatCurrency(result.comparisonIndexValues[index.id])}</td>)}
-                                            {showDividends && <td className="py-2 px-3 bg-yellow-50">{formatCurrency(result.monthlyDividends)}</td>}
-                                            {showContributions && <td className="py-2 px-3 bg-green-50">{formatCurrency(result.monthlyContributionAmount)}</td>}
-                                            {showWithdrawals && <td className="py-2 px-3 bg-red-50">{formatCurrency(result.monthlyWithdrawalAmount)}</td>}
-                                            {showNetCashFlow && <td className={`py-2 px-3 bg-gray-100 ${result.netCashFlow < 0 ? 'text-red-600' : ''}`}>
-                                                {formatCurrency(result.netCashFlow)}
-                                            </td>}
-                                            <td className="py-2 px-3 font-bold bg-gray-200">{formatCurrency(result.totalValue)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
-        </>
+        </div>
     );
 };
 
