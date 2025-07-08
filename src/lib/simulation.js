@@ -1,71 +1,31 @@
-export const generateManualReturns = (asset, simulationPeriod) => {
-    const { annualProfitability, minMonthlyProfitability, maxMonthlyProfitability } = asset;
-    const targetAnnualGrowthFactor = 1 + annualProfitability / 100;
+export const generateManualReturns = (asset, periods, random = Math.random) => {
+    const monthlyRate = Math.pow(1 + asset.annualProfitability / 100, 1/12) - 1;
+    const min = asset.minMonthlyProfitability / 100;
+    const max = asset.maxMonthlyProfitability / 100;
     
-    const allMonthlyReturns = [];
-
-    for (let year = 0; year < Math.ceil(simulationPeriod / 12); year++) {
-        const monthsInThisYear = Math.min(12, simulationPeriod - (year * 12));
-        let adjustedMin = minMonthlyProfitability / 100;
-        let adjustedMax = maxMonthlyProfitability / 100;
-
-        let yearlyReturns;
-        let attempt = 0;
-        const maxAttempts = 100; // Prevents infinite loops
-
-        while (attempt < maxAttempts) {
-            let rawMonthlyFactors = Array.from({ length: monthsInThisYear }, () => 
-                1 + (adjustedMin + Math.random() * (adjustedMax - adjustedMin))
-            );
-
-            const productOfRawFactors = rawMonthlyFactors.reduce((prod, factor) => prod * factor, 1);
-            
-            if (productOfRawFactors === 0) { // Avoid division by zero
-                 adjustedMin -= 0.0025;
-                 adjustedMax += 0.0050;
-                 attempt++;
-                 continue;
-            }
-
-            const scalingFactor = Math.pow(targetAnnualGrowthFactor / productOfRawFactors, 1 / monthsInThisYear);
-            
-            let adjustedFactors = rawMonthlyFactors.map(factor => factor * scalingFactor);
-
-            // Check if adjusted factors are within the dynamic bounds
-            const isWithinBounds = adjustedFactors.every(factor => (factor - 1) >= adjustedMin && (factor - 1) <= adjustedMax);
-
-            if (isWithinBounds) {
-                yearlyReturns = adjustedFactors.map(factor => factor - 1);
-                break; // Found a valid set
-            }
-
-            // Widen the bounds if not possible to reach the target
-            adjustedMin -= 0.0025; // -0.25%
-            adjustedMax += 0.0050; // +0.50%
-            attempt++;
-        }
-
-        if (!yearlyReturns) {
-            // Failsafe: if max attempts reached, generate returns without scaling to avoid errors
-            console.warn(`Could not converge on target annual return for asset "${asset.name}". Using unscaled random values.`);
-            yearlyReturns = Array.from({ length: monthsInThisYear }, () => adjustedMin + Math.random() * (adjustedMax - adjustedMin));
-        }
-        
-        allMonthlyReturns.push(...yearlyReturns);
+    if (min !== undefined && max !== undefined && min < max) {
+        return Array.from({ length: periods }, () => random() * (max - min) + min);
     }
-
-    return allMonthlyReturns.slice(0, simulationPeriod);
+    
+    return Array(periods).fill(monthlyRate);
 };
 
 export const runSimulation = (params) => {
-    const { 
-        assets, comparisonIndices, initialCash, simulationPeriod, 
+    // This function now expects 'assets' and 'comparisonIndices' to be fully processed
+    // with the correct number of monthly returns for the simulation period.
+    const {
+        initialCash,
+        simulationPeriod,
         fixedMonthlyContribution, contributionAdjustmentIndexId,
         fixedMonthlyWithdrawal, withdrawalAdjustmentIndexId,
         percentageProfitabilityWithdrawal, percentageCashWithdrawal, 
         percentageExcessProfitWithdrawal, 
-        selectedComparisonIndexForWithdrawal, enableRebalancing, rebalancePeriod 
+        selectedComparisonIndexForWithdrawal, enableRebalancing, rebalancePeriod,
+        assets, // These are now the 'processedAssets'
+        comparisonIndices, // These are now the 'processedIndices'
     } = params;
+    
+    // The Data Completion logic has been moved to the frontend.
     
     const results = [];
     let currentAssetValues = {};

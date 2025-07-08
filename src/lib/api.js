@@ -26,8 +26,8 @@ export const fetchTickerSuggestions = async (apiKey, keywords) => {
 
 const fetchFromAPI = async (apiKey, ticker, seriesFunction) => {
     const url = `https://www.alphavantage.co/query?function=${seriesFunction}&symbol=${encodeURIComponent(ticker)}&apikey=${apiKey}&outputsize=full`;
-    const response = await fetch(url);
-    const data = await response.json();
+        const response = await fetch(url);
+        const data = await response.json();
 
     const infoOrNote = data['Note'] || data['Information'];
     if (infoOrNote) {
@@ -41,11 +41,11 @@ const fetchFromAPI = async (apiKey, ticker, seriesFunction) => {
         }
         // Generic fallback for any other note/information
         throw new ApiError(`API provider note: ${infoOrNote}`, 400);
-    }
+        }
 
-    if (data['Error Message']) {
+        if (data['Error Message']) {
         throw new ApiError(`API Error: ${data['Error Message']}`, 400);
-    }
+        }
     return data;
 };
 

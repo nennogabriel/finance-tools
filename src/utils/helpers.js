@@ -57,3 +57,23 @@ export const formatCurrency = (value, options = {}) => {
 
     return formatted;
 }; 
+
+// --- Seeded Pseudo-Random Number Generator (PRNG) ---
+// Creates a predictable sequence of "random" numbers based on a seed.
+// This ensures that the generated data for a given ticker is always the same.
+export const createSeededRandom = (seed) => {
+    let state = seed;
+    return () => {
+        state = (state * 9301 + 49297) % 233280;
+        return state / 233280;
+    };
+};
+
+// Simple function to create a numeric seed from a string (like a ticker)
+export const createSeedFromString = (str) => {
+    let seed = 0;
+    for (let i = 0; i < str.length; i++) {
+        seed += str.charCodeAt(i);
+    }
+    return seed;
+}; 

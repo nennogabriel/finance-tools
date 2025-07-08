@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title as ChartTitle } from 'chart.js';
 import { Pie, Line } from 'react-chartjs-2';
 
-import { formatCurrency } from '@/utils/helpers';
+import { formatCurrency, createSeededRandom, createSeedFromString } from '@/utils/helpers';
 import { fetchHistoricalData } from '@/lib/api';
 import { runSimulation, generateManualReturns } from '@/lib/simulation';
 
@@ -15,12 +15,49 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointE
 
 // The ErrorModal component is no longer needed and will be removed.
 
+// --- Helper moved outside component ---
+const processDataForSimulation = (items, simulationPeriod, regenerateSignal = 0) => {
+    return items.map(item => {
+        const seedSource = item.ticker || item.name; // Use ticker if available, otherwise name
+        
+        // Manual assets are regenerated based on the signal
+        if (item.source === 'manual') {
+            const seed = createSeedFromString(seedSource) + regenerateSignal;
+            const random = createSeededRandom(seed);
+            const numericItem = {
+                        ...item,
+                        annualProfitability: parseFloat(item.annualProfitability),
+                        minMonthlyProfitability: parseFloat(item.minMonthlyProfitability),
+                        maxMonthlyProfitability: parseFloat(item.maxMonthlyProfitability),
+                    };
+            return { ...item, monthlyReturns: generateManualReturns(numericItem, simulationPeriod, random) };
+        }
+
+        // API assets are also regenerated based on the signal
+        if (item.source === 'api' && item.monthlyReturns.length > 0) {
+            const historicalReturns = item.monthlyReturns.slice(0, item.historicalLength);
+            if (historicalReturns.length >= simulationPeriod) {
+                return { ...item, monthlyReturns: historicalReturns.slice(0, simulationPeriod) };
+            }
+            // Generate missing data if needed
+            const periodsToGenerate = simulationPeriod - historicalReturns.length;
+            const seed = createSeedFromString(seedSource) + regenerateSignal;
+            const random = createSeededRandom(seed);
+            const minReturn = Math.min(...historicalReturns);
+            const maxReturn = Math.max(...historicalReturns);
+            const generatedReturns = Array.from({ length: periodsToGenerate }, () => random() * (maxReturn - minReturn) + minReturn);
+            return { ...item, monthlyReturns: [...historicalReturns, ...generatedReturns] };
+        }
+        // Return item as is if no processing is needed
+        return item;
+    });
+};
 
 // --- Main App Component ---
 const InvestmentPortfolioSimulator = () => {
     const [params, setParams] = useState({
-        initialCash: '500000',
-        simulationPeriod: '48',
+        initialCash: '100000',
+        simulationPeriod: '60',
         fixedMonthlyContribution: '0',
         contributionAdjustmentIndexId: '',
         fixedMonthlyWithdrawal: '0',
@@ -29,7 +66,7 @@ const InvestmentPortfolioSimulator = () => {
         percentageCashWithdrawal: '0',
         percentageExcessProfitWithdrawal: '0',
         selectedComparisonIndexForWithdrawal: '',
-        rebalancePeriod: '12',
+        rebalancePeriod: '3',
         enableRebalancing: false,
     });
     const [apiKey, setApiKey] = useState('');
@@ -37,14 +74,12 @@ const InvestmentPortfolioSimulator = () => {
     // The premium tickers set is no longer needed.
 
     const [assets, setAssets] = useState([
-        { id: 1, name: 'Fixed Income', initialAllocationPercentage: '25', dividendYield: '0', annualProfitability: '15', minMonthlyProfitability: '1.2', maxMonthlyProfitability: '1.3', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
-        { id: 2, name: 'REITs', initialAllocationPercentage: '25', dividendYield: '0', annualProfitability: '8', minMonthlyProfitability: '-10', maxMonthlyProfitability: '15', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
-        { id: 3, name: 'BR Stocks', initialAllocationPercentage: '25', dividendYield: '0', annualProfitability: '12', minMonthlyProfitability: '-20', maxMonthlyProfitability: '20', ticker: 'IBOV.SA', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
-        { id: 4, name: 'International Stocks', initialAllocationPercentage: '25', dividendYield: '0', annualProfitability: '12', minMonthlyProfitability: '-20', maxMonthlyProfitability: '20', ticker: 'SPY', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
+        { id: 1, name: 'Fixed Income', initialAllocationPercentage: '34', dividendYield: '0', annualProfitability: '15', minMonthlyProfitability: '1.2', maxMonthlyProfitability: '1.3', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
+        { id: 2, name: 'REITs', initialAllocationPercentage: '33', dividendYield: '0', annualProfitability: '8', minMonthlyProfitability: '-10', maxMonthlyProfitability: '15', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
+        { id: 3, name: 'Stocks', initialAllocationPercentage: '33', dividendYield: '0', annualProfitability: '12', minMonthlyProfitability: '-20', maxMonthlyProfitability: '20', ticker: 'IBOV.SA', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
     ]);
     const [comparisonIndices, setComparisonIndices] = useState([
         { id: 1, name: 'Inflation', annualProfitability: '6', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
-        { id: 2, name: 'SELIC', annualProfitability: '15', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
     ]);
     
     const [simulationResults, setSimulationResults] = useState([]);
@@ -52,9 +87,11 @@ const InvestmentPortfolioSimulator = () => {
     // The errorModal state is no longer needed.
 
     const [adjustedPreview, setAdjustedPreview] = useState([]);
+    const [regenerateSignal, setRegenerateSignal] = useState(0);
 
     const prevSimPeriodRef = useRef(params.simulationPeriod);
 
+    // --- Derived State for UI ---
     const finalAllocation = simulationResults[simulationResults.length - 1]?.assetValues || {};
     const totalAllocationPercentage = assets.reduce((sum, asset) => sum + parseFloat(asset.initialAllocationPercentage || 0), 0);
 
@@ -63,25 +100,16 @@ const InvestmentPortfolioSimulator = () => {
     const showDividends = simulationResults.some(res => res.monthlyDividends > 0);
     const showNetCashFlow = showContributions || showWithdrawals || showDividends;
 
-    const handleRegenerateAll = useCallback(() => {
-        const simPeriod = parseInt(params.simulationPeriod, 10);
-        if(isNaN(simPeriod) || simPeriod <= 0) return;
+    const apiAssets = assets.filter(a => a.source === 'api' && a.monthlyReturns.length > 0);
+    const shortestApiHistory = apiAssets.length > 0
+        ? Math.min(...apiAssets.map(a => a.monthlyReturns.length))
+        : parseInt(params.simulationPeriod, 10);
+    const generatedDataNotice = shortestApiHistory < params.simulationPeriod && apiAssets.length > 0;
 
-        setAssets(prevAssets => 
-            prevAssets.map(asset => {
-                if (asset.source === 'manual') {
-                    const numericAsset = {
-                        ...asset,
-                        annualProfitability: parseFloat(asset.annualProfitability),
-                        minMonthlyProfitability: parseFloat(asset.minMonthlyProfitability),
-                        maxMonthlyProfitability: parseFloat(asset.maxMonthlyProfitability),
-                    };
-                    return { ...asset, monthlyReturns: generateManualReturns(numericAsset, simPeriod) };
-                }
-                return asset;
-            })
-        );
-    }, [params.simulationPeriod]);
+    const handleRegenerateAll = useCallback(() => {
+        // This function now only "signals" to the main useEffect to re-run the processing.
+        setRegenerateSignal(prev => prev + 1);
+    }, []);
 
     const handleAdjustAllocations = () => {
         const currentTotal = assets.reduce((sum, asset) => sum + parseFloat(asset.initialAllocationPercentage || 0), 0);
@@ -161,6 +189,12 @@ const InvestmentPortfolioSimulator = () => {
 
     useEffect(() => {
         if (validateParams()) {
+            const simPeriod = parseInt(params.simulationPeriod, 10);
+            
+            // Centralized data processing
+            const processedAssets = processDataForSimulation(assets, simPeriod, regenerateSignal);
+            const processedIndices = processDataForSimulation(comparisonIndices, simPeriod, regenerateSignal);
+
             const numericParams = {
                 ...params,
                 initialCash: parseFloat(params.initialCash) || 0,
@@ -174,15 +208,15 @@ const InvestmentPortfolioSimulator = () => {
                 percentageExcessProfitWithdrawal: parseFloat(params.percentageExcessProfitWithdrawal) || 0,
                 selectedComparisonIndexForWithdrawal: params.selectedComparisonIndexForWithdrawal,
                 rebalancePeriod: parseInt(params.rebalancePeriod, 10) || 0,
-                assets: assets.map(a => ({...a, initialAllocationPercentage: parseFloat(a.initialAllocationPercentage) || 0, dividendYield: parseFloat(a.dividendYield) || 0, annualProfitability: parseFloat(a.annualProfitability) || 0, minMonthlyProfitability: parseFloat(a.minMonthlyProfitability) || 0, maxMonthlyProfitability: parseFloat(a.maxMonthlyProfitability) || 0 })),
-                comparisonIndices: comparisonIndices.map(i => ({...i, annualProfitability: parseFloat(i.annualProfitability) || 0})),
+                assets: processedAssets.map(a => ({...a, initialAllocationPercentage: parseFloat(a.initialAllocationPercentage) || 0, dividendYield: parseFloat(a.dividendYield) || 0, annualProfitability: parseFloat(a.annualProfitability) || 0, minMonthlyProfitability: parseFloat(a.minMonthlyProfitability) || 0, maxMonthlyProfitability: parseFloat(a.maxMonthlyProfitability) || 0 })),
+                comparisonIndices: processedIndices.map(i => ({...i, annualProfitability: parseFloat(i.annualProfitability) || 0})),
             };
             const results = runSimulation(numericParams);
             setSimulationResults(results);
         } else {
             setSimulationResults([]);
         }
-    }, [params, assets, comparisonIndices, validateParams]);
+    }, [params, assets, comparisonIndices, validateParams, regenerateSignal]);
     
     const handleParamChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -253,7 +287,13 @@ const InvestmentPortfolioSimulator = () => {
             const monthlyReturns = data.monthly_returns;
 
             if (monthlyReturns) {
-                setter(prev => prev.map(i => i.id === id ? { ...i, status: 'loaded', source: 'api', monthlyReturns } : i));
+                setter(prev => prev.map(i => i.id === id ? { 
+                    ...i, 
+                    status: 'loaded', 
+                    source: 'api', 
+                    monthlyReturns,
+                    historicalLength: monthlyReturns.length // Store the original length
+                } : i));
             } else {
                 throw new Error("No monthly returns data received from server.");
             }
@@ -462,6 +502,15 @@ const InvestmentPortfolioSimulator = () => {
                         </div>
                     </div>
                      <div className="mt-10 p-6 bg-gray-50 rounded-lg shadow-inner overflow-x-auto">
+                        {generatedDataNotice && (
+                            <div className="mb-4 p-3 bg-blue-100 border-l-4 border-blue-500 text-blue-800 rounded-r-lg">
+                                <p className="font-semibold">Data Generation Notice</p>
+                                <p className="text-sm">
+                                    The shortest historical data found for an asset was {shortestApiHistory} months. 
+                                    The remaining {params.simulationPeriod - shortestApiHistory} months have been randomly generated to complete the {params.simulationPeriod}-month simulation period.
+                                </p>
+                            </div>
+                        )}
                         <div className="flex justify-center mb-4">
                             <button onClick={handleRegenerateAll} className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300">
                                 Regenerate Manual Simulations
