@@ -74,9 +74,9 @@ const InvestmentPortfolioSimulator = () => {
     // The premium tickers set is no longer needed.
 
     const [assets, setAssets] = useState([
-        { id: 1, name: 'Fixed Income', initialAllocationPercentage: '34', dividendYield: '0', annualProfitability: '15', minMonthlyProfitability: '1.2', maxMonthlyProfitability: '1.3', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
+        { id: 1, name: 'Bonds', initialAllocationPercentage: '34', dividendYield: '0', annualProfitability: '4.5', minMonthlyProfitability: '0.3', maxMonthlyProfitability: '0.7', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
         { id: 2, name: 'REITs', initialAllocationPercentage: '33', dividendYield: '0', annualProfitability: '8', minMonthlyProfitability: '-10', maxMonthlyProfitability: '15', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
-        { id: 3, name: 'Stocks', initialAllocationPercentage: '33', dividendYield: '0', annualProfitability: '12', minMonthlyProfitability: '-20', maxMonthlyProfitability: '20', ticker: 'IBOV.SA', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
+        { id: 3, name: 'Stocks', initialAllocationPercentage: '33', dividendYield: '0', annualProfitability: '12', minMonthlyProfitability: '-20', maxMonthlyProfitability: '20', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
     ]);
     const [comparisonIndices, setComparisonIndices] = useState([
         { id: 1, name: 'Inflation', annualProfitability: '6', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] },
