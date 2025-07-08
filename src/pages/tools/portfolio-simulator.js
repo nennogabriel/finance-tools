@@ -258,6 +258,8 @@ const InvestmentPortfolioSimulator = () => {
         toast.error(message);
     };
 
+    const MAX_HEADER_LENGTH = 20;
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 sm:p-8 font-sans text-gray-800">
             <div className="max-w-7xl mx-auto bg-white shadow-2xl rounded-xl p-6 sm:p-10">
@@ -397,8 +399,16 @@ const InvestmentPortfolioSimulator = () => {
                             <thead className="bg-gray-200">
                                 <tr>
                                     <th className="py-2 px-3 text-left">Month</th>
-                                    {assets.map(asset => <th key={asset.id} className="py-2 px-3 text-left bg-blue-50">{asset.name}</th>)}
-                                    {comparisonIndices.map(index => <th key={index.id} className="py-2 px-3 text-left bg-orange-50">{index.name}</th>)}
+                                    {assets.map(asset => (
+                                        <th key={asset.id} className="py-2 px-3 text-left bg-blue-50" title={asset.name}>
+                                            {asset.name.length > MAX_HEADER_LENGTH ? asset.ticker : asset.name}
+                                        </th>
+                                    ))}
+                                    {comparisonIndices.map(index => (
+                                        <th key={index.id} className="py-2 px-3 text-left bg-orange-50" title={index.name}>
+                                            {index.name.length > MAX_HEADER_LENGTH ? index.ticker : index.name}
+                                        </th>
+                                    ))}
                                     {showDividends && <th className="py-2 px-3 text-left bg-yellow-50">Dividends</th>}
                                     {showContributions && <th className="py-2 px-3 text-left bg-green-50">Contributions</th>}
                                     {showWithdrawals && <th className="py-2 px-3 text-left bg-red-50">Withdrawals</th>}
