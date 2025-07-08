@@ -51,6 +51,8 @@ const InvestmentPortfolioSimulator = () => {
     const [errors, setErrors] = useState({});
     // The errorModal state is no longer needed.
 
+    const [adjustedPreview, setAdjustedPreview] = useState([]);
+
     const prevSimPeriodRef = useRef(params.simulationPeriod);
 
     const finalAllocation = simulationResults[simulationResults.length - 1]?.assetValues || {};
@@ -81,6 +83,44 @@ const InvestmentPortfolioSimulator = () => {
         );
     }, [params.simulationPeriod]);
 
+    const handleAdjustAllocations = () => {
+        const currentTotal = assets.reduce((sum, asset) => sum + parseFloat(asset.initialAllocationPercentage || 0), 0);
+        if (currentTotal === 0) return; // Avoid division by zero
+
+        const factor = 100 / currentTotal;
+        const adjustedAssets = assets.map(asset => ({
+            ...asset,
+            initialAllocationPercentage: (parseFloat(asset.initialAllocationPercentage || 0) * factor).toFixed(2),
+        }));
+        setAssets(adjustedAssets);
+    };
+
+    const handlePreviewAdjustment = () => {
+        const currentTotal = assets.reduce((sum, asset) => sum + parseFloat(asset.initialAllocationPercentage || 0), 0);
+        if (currentTotal === 0) return;
+
+        const factor = 100 / currentTotal;
+        const preview = assets.map(asset => ({
+            id: asset.id,
+            name: asset.name,
+            newPercentage: (parseFloat(asset.initialAllocationPercentage || 0) * factor).toFixed(2),
+        }));
+        setAdjustedPreview(preview);
+    };
+
+    const handleApplyAdjustment = () => {
+        const adjustedAssets = assets.map(asset => {
+            const previewAsset = adjustedPreview.find(p => p.id === asset.id);
+            return previewAsset ? { ...asset, initialAllocationPercentage: previewAsset.newPercentage } : asset;
+        });
+        setAssets(adjustedAssets);
+        setAdjustedPreview([]); // Clear preview after applying
+    };
+
+    const cancelAdjustment = () => {
+        setAdjustedPreview([]);
+    };
+    
     // Initial data generation
     useEffect(() => {
         handleRegenerateAll();
@@ -302,11 +342,44 @@ const InvestmentPortfolioSimulator = () => {
                             ))}
                         </div>
                         <button onClick={() => setAssets([...assets, { id: Date.now(), name: 'New Asset', initialAllocationPercentage: '0', dividendYield: '0', annualProfitability: '0', minMonthlyProfitability: '-5', maxMonthlyProfitability: '5', ticker: '', source: 'manual', monthlyReturns: [], status: 'idle', suggestions: [] }])} className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">+ Add Asset</button>
-                        <div className={`mt-4 p-3 rounded-md text-center font-semibold ${totalAllocationPercentage > 100 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                            Total Allocation: {totalAllocationPercentage.toFixed(2)}%
+                        <div className={`mt-4 p-3 rounded-md text-center font-semibold flex justify-center items-center gap-4 ${
+                            Math.abs(totalAllocationPercentage - 100) > 0.01 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                            <span>Total Allocation: {totalAllocationPercentage.toFixed(2)}%</span>
+                            {Math.abs(totalAllocationPercentage - 100) > 0.01 && !adjustedPreview.length && (
+                                <button onClick={handlePreviewAdjustment} className="bg-yellow-500 text-yellow-800 hover:bg-yellow-600 px-3 py-1 rounded-md text-sm font-bold">
+                                    Adjust to 100%
+                                </button>
+                            )}
                         </div>
                     </div>
                     
+                    {adjustedPreview.length > 0 && (
+                        <div className="mt-4 p-4 bg-gray-100 rounded-lg">
+                            <h4 className="font-semibold text-center mb-2">Adjustment Preview</h4>
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b">
+                                        <th className="text-left py-1">Asset</th>
+                                        <th className="text-right py-1">New %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {adjustedPreview.map(item => (
+                                        <tr key={item.id}>
+                                            <td className="py-1">{item.name}</td>
+                                            <td className="text-right py-1">{item.newPercentage}%</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <div className="flex justify-center gap-4 mt-4">
+                                <button onClick={handleApplyAdjustment} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-4 rounded-md">Apply</button>
+                                <button onClick={cancelAdjustment} className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-1 px-4 rounded-md">Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Comparison Indices Section */}
                     <div className="p-6 bg-orange-50 rounded-lg shadow-inner">
                          <h2 className="text-xl font-semibold text-orange-800 mb-4">Comparison Indices</h2>
